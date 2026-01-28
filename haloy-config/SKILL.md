@@ -19,11 +19,12 @@ Before proceeding, verify the user's request aligns with this skill:
 **This skill is for:**
 - Creating a `haloy.yaml` configuration file
 - Single-target deployments (one server, one app)
+- Multi-target deployments with a self-hosted database (app + database service)
 - Applications that already have a Dockerfile or use a pre-built image
 
 **This skill is NOT for:**
 - Creating Dockerfiles (use the `dockerize` skill instead)
-- Multi-target deployments (staging/production) - users can expand the config later
+- Multi-environment deployments (staging/production) - users can expand the config later
 - docker-compose setups or Kubernetes manifests
 
 If no Dockerfile exists and the user needs one, inform them:
@@ -41,10 +42,12 @@ If no Dockerfile exists and the user needs one, inform them:
    - `Cargo.toml` (Rust)
    - `Gemfile` (Ruby/Rails)
    - `composer.json` (PHP/Laravel)
-4. **Infer defaults** for app name, port, and health check path
-5. **Ask the user** for server (from configured list or manual entry) and domain
-6. **Generate haloy.yaml** with appropriate configuration
-7. **Provide next steps** for validation and deployment
+4. **Detect database dependencies** (Prisma, Drizzle, pg, SQLAlchemy, etc.)
+5. **Infer defaults** for app name, port, and health check path
+6. **Ask the user** for server (from configured list or manual entry) and domain
+7. **If database detected**, ask if they want self-hosted or external
+8. **Generate haloy.yaml** with appropriate configuration
+9. **Provide next steps** for validation and deployment
 
 ## Project Detection
 
@@ -66,6 +69,31 @@ Detect the framework to determine the default port:
 | Default | Unknown framework | 8080 |
 
 Also check the Dockerfile for `EXPOSE` directives which override framework defaults.
+
+## Database Detection
+
+Scan for database dependencies to determine if the project uses a database:
+
+| Indicator | Database Type |
+|-----------|---------------|
+| `@prisma/client`, `prisma` in package.json | Check schema for provider |
+| `drizzle-orm` in package.json | Check config for driver |
+| `pg`, `postgres` in package.json | PostgreSQL |
+| `mysql2` in package.json | MySQL |
+| `better-sqlite3`, `sqlite3` in package.json | SQLite (no service needed) |
+| `sequelize`, `typeorm` in package.json | Check config for dialect |
+| `psycopg2`, `asyncpg` in requirements.txt | PostgreSQL |
+| `sqlalchemy` in requirements.txt | Check config for driver |
+| `django` in requirements.txt | Check settings for database |
+| `prisma/schema.prisma` file exists | Check `provider` in datasource block |
+
+**Prisma schema example** - look for the provider:
+```prisma
+datasource db {
+  provider = "postgresql"  // or "mysql", "sqlite"
+  url      = env("DATABASE_URL")
+}
+```
 
 ## Decision Flow
 
@@ -130,6 +158,30 @@ After gathering domain information, remind the user to configure DNS:
 - **If not found**: Use `/` (root path)
 - Do NOT ask - haloy will use `/` by default which works for most apps
 
+### Database
+If database dependencies are detected (see Database Detection section):
+
+1. **Ask the user**:
+   > "I detected database dependencies ([detected type]). Would you like to add a self-hosted database service, or will you use an external provider (Supabase, Neon, RDS, etc.)?"
+   > - Add self-hosted database
+   > - Use external provider (I'll configure DATABASE_URL myself)
+
+2. **If self-hosted**:
+   - Generate multi-target config with database service + app target
+   - Use the `database` preset for the database target
+   - Add appropriate environment variables with placeholder values
+   - Add volume for data persistence
+   - Database defaults by type:
+
+   | Database | Image | Port | Volume Path |
+   |----------|-------|------|-------------|
+   | PostgreSQL | `postgres:17` | 5432 | `/var/lib/postgresql/data` |
+   | MySQL | `mysql:8` | 3306 | `/var/lib/mysql` |
+
+3. **If external provider**:
+   - Generate single-target config as usual
+   - Remind user: "Remember to set the `DATABASE_URL` environment variable for your external database."
+
 ## Configuration Reference
 
 Haloy supports two modes:
@@ -181,6 +233,38 @@ domains:
   - domain: "my-app.example.com"
 volumes:
   - "app-data:/app/data"
+```
+
+### With Self-Hosted Database (Multi-Target)
+
+```yaml
+server: "haloy.yourserver.com"
+env:
+  - name: POSTGRES_USER
+    value: "postgres"
+  - name: POSTGRES_PASSWORD
+    value: "change-me-in-production"
+  - name: POSTGRES_DB
+    value: "my_app"
+
+targets:
+  postgres:
+    preset: database
+    image:
+      repository: postgres:17
+    port: 5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  my-app:
+    domains:
+      - domain: "my-app.example.com"
+    port: 3000
+    env:
+      - name: DATABASE_URL
+        value: "postgres://postgres:change-me-in-production@postgres:5432/my_app"
+      - name: NODE_ENV
+        value: "production"
 ```
 
 ### Multi-Target Example
@@ -298,6 +382,83 @@ health_check_path: "/api/health"
 > Your `haloy.yaml` has been created.
 >
 > **DNS Setup**: Remember to configure DNS with your domain provider. Point `myapp.example.com` and `www.myapp.example.com` to your haloy server's IP address using A records.
+>
+> To deploy:
+> 1. Validate the config: `haloy validate-config`
+> 2. Deploy: `haloy deploy`
+
+### With Database Detection
+
+**User**: "Create a haloy config for this project"
+
+**Agent**:
+1. Checks for Dockerfile - found
+2. Checks `~/.config/haloy/client.yaml` - finds configured servers
+3. Detects TanStack Start from package.json
+4. Detects `@prisma/client` in dependencies
+5. Checks `prisma/schema.prisma` - finds `provider = "postgresql"`
+
+**Agent asks**:
+> "I found these configured haloy servers. Which one would you like to deploy to?"
+> - example.haloy.dev
+> - prod.mycompany.com
+
+**User**: "example.haloy.dev"
+
+**Agent asks**:
+> "What domain should this app be accessible at?"
+
+**User**: "todo.example.com"
+
+**Agent asks**:
+> "Would you like to add any domain aliases?"
+
+**User**: "no"
+
+**Agent asks**:
+> "I detected PostgreSQL database dependencies (Prisma). Would you like to add a self-hosted database service, or will you use an external provider (Supabase, Neon, RDS, etc.)?"
+> - Add self-hosted database
+> - Use external provider
+
+**User**: "Add self-hosted database"
+
+**Agent creates** `haloy.yaml`:
+```yaml
+server: "example.haloy.dev"
+env:
+  - name: POSTGRES_USER
+    value: "postgres"
+  - name: POSTGRES_PASSWORD
+    value: "change-me-in-production"
+  - name: POSTGRES_DB
+    value: "todo_app"
+
+targets:
+  postgres:
+    preset: database
+    image:
+      repository: postgres:17
+    port: 5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  todo-app:
+    domains:
+      - domain: "todo.example.com"
+    port: 3000
+    env:
+      - name: DATABASE_URL
+        value: "postgres://postgres:change-me-in-production@postgres:5432/todo_app"
+      - name: NODE_ENV
+        value: "production"
+```
+
+**Agent provides next steps**:
+> Your `haloy.yaml` has been created with a self-hosted PostgreSQL database.
+>
+> **Important**: Change `POSTGRES_PASSWORD` to a secure value before deploying to production.
+>
+> **DNS Setup**: Remember to configure DNS with your domain provider. Point `todo.example.com` to your haloy server's IP address.
 >
 > To deploy:
 > 1. Validate the config: `haloy validate-config`
