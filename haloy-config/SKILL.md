@@ -165,15 +165,16 @@ Key options:
 After gathering information, create the `haloy.yaml` file and provide:
 
 1. **The haloy.yaml file** - Written to the project root
-2. **Validation command**:
+2. **Update .dockerignore** - Add `haloy.yaml` to `.dockerignore` if not already present. This improves Docker layer caching since changes to `haloy.yaml` won't invalidate the build cache.
+3. **Validation command**:
    ```bash
    haloy validate-config
    ```
-3. **Deployment command**:
+4. **Deployment command**:
    ```bash
    haloy deploy
    ```
-4. **If haloy CLI is not installed**, show installation options:
+5. **If haloy CLI is not installed**, show installation options:
    ```bash
    # Shell script
    curl -fsSL https://sh.haloy.dev/install-haloy.sh | sh

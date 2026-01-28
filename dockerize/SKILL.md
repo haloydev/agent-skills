@@ -299,4 +299,7 @@ __pycache__
 *.pyc
 .venv
 target
+haloy.yaml
 ```
+
+**Important**: Always include `haloy.yaml` in `.dockerignore`. This file is used by haloy for deployment configuration but is not needed inside the container. Excluding it improves Docker layer caching since changes to `haloy.yaml` (like updating domains or environment variables) won't invalidate the build cache.
