@@ -158,49 +158,11 @@ node_modules
 .env.*
 ```
 
-## haloy.yaml Example
+## haloy.yaml Configuration
 
-Basic TanStack Start app:
-```yaml
-name: my-tanstack-app
-server: user@server.example.com
-
-services:
-  web:
-    domains:
-      - my-app.example.com
-    port: 3000
-    health_check: /health
-```
-
-With PostgreSQL database (check `references/base-images.md` for current postgres version):
-```yaml
-server: your-server.haloy.dev
-env:
-  - name: POSTGRES_USER
-    value: postgres
-  - name: POSTGRES_PASSWORD
-    value: "your-secure-password"
-  - name: POSTGRES_DB
-    value: "app_db"
-
-targets:
-  postgres:
-    preset: database
-    image:
-      repository: postgres:17
-    port: 5432
-    volumes:
-      - postgres-data:/var/lib/postgresql
-
-  app:
-    domains:
-      - domain: my-app.example.com
-    port: 3000
-    env:
-      - name: NODE_ENV
-        value: production
-```
+To create a `haloy.yaml` configuration file for your TanStack Start app, either:
+- Run the `/haloy-config` skill for guided configuration generation
+- Check the [haloy documentation](https://haloy.dev/docs) for configuration options
 
 ## Database Connection Pattern
 

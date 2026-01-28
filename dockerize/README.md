@@ -25,7 +25,7 @@ Trigger the skill by asking your AI agent to:
 3. Analyzes build process and runtime requirements
 4. Creates an optimized multi-stage Dockerfile with HEALTHCHECK
 5. Generates a `.dockerignore` if needed
-6. Provides a sample `haloy.yaml` configuration
+6. Advises using `/haloy-config` skill or docs for `haloy.yaml` setup
 
 ## Health Checks
 
@@ -56,7 +56,7 @@ Agent: I'll create an optimized Dockerfile for your TanStack Start application..
 [Creates Dockerfile with pnpm, Nitro output, health check]
 [Creates /health route if missing]
 [Creates .dockerignore]
-[Suggests haloy.yaml with database configuration if using Drizzle]
+[Suggests running /haloy-config for configuration]
 ```
 
 ### Next.js
@@ -72,7 +72,7 @@ User: Yes
 Agent: [Creates /health route]
        [Creates Dockerfile with standalone output, HEALTHCHECK, non-root user]
        [Creates .dockerignore]
-       [Suggests haloy.yaml configuration]
+       [Suggests running /haloy-config for configuration]
 ```
 
 ## Note on Docker Compose

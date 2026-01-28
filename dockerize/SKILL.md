@@ -261,18 +261,8 @@ After creating the Dockerfile, provide output in this order:
    docker build -t myapp .
    docker run -p 3000:3000 myapp
    ```
-4. Example `haloy.yaml` if one doesn't exist:
-   ```yaml
-   name: myapp
-   server: user@server.example.com
-
-   services:
-     web:
-       domains:
-         - myapp.example.com
-       port: 3000
-       health_check: /health
-   ```
+4. If no `haloy.yaml` exists, advise the user:
+   > "To complete your haloy setup, you'll need a `haloy.yaml` configuration file. You can either run the `/haloy-config` skill to generate one, or check the [haloy documentation](https://haloy.dev/docs) for configuration options."
 
 ## Reference Files
 
