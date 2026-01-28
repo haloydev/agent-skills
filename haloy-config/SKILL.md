@@ -33,17 +33,18 @@ If no Dockerfile exists and the user needs one, inform them:
 ## How It Works
 
 1. **Check for Dockerfile** - Verify the project can be containerized
-2. **Detect the project type** by examining:
+2. **Check for configured haloy servers** - Look for existing server configurations
+3. **Detect the project type** by examining:
    - `package.json` with framework dependencies (Next.js, TanStack Start, Express, etc.)
    - `pyproject.toml`, `requirements.txt`, `Pipfile` (Python/Django/FastAPI)
    - `go.mod` (Go)
    - `Cargo.toml` (Rust)
    - `Gemfile` (Ruby/Rails)
    - `composer.json` (PHP/Laravel)
-3. **Infer defaults** for app name, port, and health check path
-4. **Ask the user** for server URL and domain
-5. **Generate haloy.yaml** with appropriate configuration
-6. **Provide next steps** for validation and deployment
+4. **Infer defaults** for app name, port, and health check path
+5. **Ask the user** for server (from configured list or manual entry) and domain
+6. **Generate haloy.yaml** with appropriate configuration
+7. **Provide next steps** for validation and deployment
 
 ## Project Detection
 
@@ -76,13 +77,47 @@ Use defaults unless a critical value is missing. Only ask the user when necessar
 - **Ask if**: Name contains invalid characters or is generic (e.g., "app", "project")
 
 ### Server URL
-- **Always ask** - There is no sensible default
-- Example prompt: "What is your haloy server URL? (e.g., haloy.yourserver.com)"
+
+Check for configured servers in `~/.config/haloy/client.yaml`:
+
+```yaml
+# Example client.yaml structure
+servers:
+  example.haloy.dev:
+    token_env: HALOY_API_TOKEN_example_HALOY_DEV
+  prod.mycompany.com:
+    token_env: HALOY_API_TOKEN_PROD
+```
+
+**Decision flow:**
+
+1. **If servers found**: Present them as options and let the user choose. The server keys (e.g., `example.haloy.dev`) are the values to use in the config.
+   > "I found these configured haloy servers. Which one would you like to deploy to?"
+   > - example.haloy.dev
+   > - prod.mycompany.com
+   > - Enter a different server
+
+2. **If no servers found**: Check if haloy CLI is installed by running `which haloy` or `haloy --version`
+   - **If haloy is installed**: Ask for the server URL manually
+     > "What is your haloy server URL? (e.g., haloy.yourserver.com)"
+   - **If haloy is not installed**: Inform the user they need to install and configure the CLI first
+     > "No haloy servers configured. To deploy with haloy, you'll need to install the CLI and add a server. See: https://haloy.dev/docs/client-installation"
 
 ### Domain
 - **Always ask** - Required for web applications
 - Example prompt: "What domain should this app be accessible at? (e.g., myapp.example.com)"
 - If user says "none" or "skip", omit the domains section
+
+### Domain Aliases
+- **Ask after domain**: Once the user provides a domain, ask if they want to add any aliases
+- Example prompt: "Would you like to add any domain aliases? (e.g., www.myapp.example.com)"
+- Common alias: `www.` prefix of the main domain
+- If user says "none" or "skip", omit the aliases
+
+### DNS Reminder
+After gathering domain information, remind the user to configure DNS:
+
+> "Remember to configure DNS with your domain provider. Point your domain(s) to your haloy server's IP address using an A record, or use a CNAME record if your server has a domain name."
 
 ### Port
 - **Use framework default** from the table above
@@ -97,20 +132,23 @@ Use defaults unless a critical value is missing. Only ask the user when necessar
 
 ## Configuration Reference
 
-### Minimal Configuration
+Haloy supports two modes:
+
+1. **Single Deployment**: No `targets` defined, root configuration is the deployment target
+2. **Multi-Target**: `targets` defined, root acts as base/default configuration
+
+### Minimal Configuration (Single Deployment)
 
 ```yaml
 name: "my-app"
-server: haloy.yourserver.com
-domains:
-  - domain: "my-app.example.com"
+server: "haloy.yourserver.com"
 ```
 
-### Common Options
+### With Domain and Port
 
 ```yaml
 name: "my-app"
-server: haloy.yourserver.com
+server: "haloy.yourserver.com"
 domains:
   - domain: "my-app.example.com"
     aliases:
@@ -123,7 +161,7 @@ health_check_path: "/health"
 
 ```yaml
 name: "my-app"
-server: haloy.yourserver.com
+server: "haloy.yourserver.com"
 domains:
   - domain: "my-app.example.com"
 port: "3000"
@@ -138,11 +176,33 @@ env:
 
 ```yaml
 name: "my-app"
-server: haloy.yourserver.com
+server: "haloy.yourserver.com"
 domains:
   - domain: "my-app.example.com"
 volumes:
   - "app-data:/app/data"
+```
+
+### Multi-Target Example
+
+```yaml
+# Base settings inherited by all targets
+image:
+  repository: "my-app"
+  tag: "latest"
+port: "3000"
+
+targets:
+  production:
+    server: "prod.haloy.com"
+    domains:
+      - domain: "my-app.com"
+    replicas: 2
+  staging:
+    server: "staging.haloy.com"
+    domains:
+      - domain: "staging.my-app.com"
+    replicas: 1
 ```
 
 ### Full Reference
@@ -150,15 +210,18 @@ volumes:
 For all configuration options, see: https://haloy.dev/docs/configuration-reference
 
 Key options:
-- `name` - Application name (required)
+- `name` - Application name (required for single deployment)
 - `server` - Haloy server URL (required)
-- `domains` - Domain configuration with optional aliases
+- `image` - Docker image configuration (repository, tag)
+- `domains` - Array of domain objects with `domain` and optional `aliases`
 - `port` - Container port (default: "8080")
 - `health_check_path` - Health check endpoint (default: "/")
 - `env` - Environment variables as name/value pairs
 - `volumes` - Volume mounts for persistent data
 - `replicas` - Number of container instances (default: 1)
 - `deployment_strategy` - "rolling" (default) or "replace"
+- `targets` - Define multiple deployment targets (multi-target mode)
+- `preset` - Apply preset configuration ("database" or "service")
 
 ## Output Format
 
@@ -188,38 +251,68 @@ After gathering information, create the `haloy.yaml` file and provide:
    bun add -g haloy
    ```
 
-## Example Interaction
+## Example Interactions
+
+### With Configured Servers
 
 **User**: "Create a haloy config for this project"
 
 **Agent**:
 1. Checks for Dockerfile - found
-2. Detects Next.js from package.json
-3. Infers app name "my-nextjs-app" from package.json
-4. Detects port 3000 from framework
-5. Finds `/api/health` endpoint in the codebase
+2. Checks `~/.config/haloy/client.yaml` - finds configured servers
+3. Detects Next.js from package.json
+4. Infers app name "my-nextjs-app" from package.json
+5. Detects port 3000 from framework
+6. Finds `/api/health` endpoint in the codebase
 
 **Agent asks**:
-> "What is your haloy server URL? (e.g., haloy.yourserver.com)"
+> "I found these configured haloy servers. Which one would you like to deploy to?"
+> - example.haloy.dev
+> - prod.mycompany.com
 
-**User**: "api.myserver.com"
+**User**: "example.haloy.dev"
 
 **Agent asks**:
 > "What domain should this app be accessible at?"
 
 **User**: "myapp.example.com"
 
+**Agent asks**:
+> "Would you like to add any domain aliases? (e.g., www.myapp.example.com)"
+
+**User**: "yes, www.myapp.example.com"
+
 **Agent creates** `haloy.yaml`:
 ```yaml
 name: "my-nextjs-app"
-server: api.myserver.com
+server: "example.haloy.dev"
 domains:
   - domain: "myapp.example.com"
+    aliases:
+      - "www.myapp.example.com"
 port: "3000"
 health_check_path: "/api/health"
 ```
 
 **Agent provides next steps**:
-> Your `haloy.yaml` has been created. To deploy:
+> Your `haloy.yaml` has been created.
+>
+> **DNS Setup**: Remember to configure DNS with your domain provider. Point `myapp.example.com` and `www.myapp.example.com` to your haloy server's IP address using A records.
+>
+> To deploy:
 > 1. Validate the config: `haloy validate-config`
 > 2. Deploy: `haloy deploy`
+
+### Without Configured Servers
+
+**User**: "Create a haloy config"
+
+**Agent**:
+1. Checks for Dockerfile - found
+2. Checks `~/.config/haloy/client.yaml` - no servers configured
+3. Checks if haloy CLI is installed - not found
+
+**Agent responds**:
+> "No haloy servers configured. To deploy with haloy, you'll need to install the CLI and add a server first. See: https://haloy.dev/docs/client-installation"
+>
+> Once installed, run `haloy server add` to configure your server, then run this skill again.
