@@ -1,30 +1,11 @@
 ---
 name: dockerize
-description: Create a Dockerfile for the current project to deploy with haloy. Use when the user says "dockerize", "create a Dockerfile", "containerize my app", "make this deployable", or "prepare for haloy". This skill creates optimized, production-ready Dockerfiles without docker-compose.
-license: MIT
-compatibility: Requires Docker knowledge. Works with any application that can be containerized.
-metadata:
-  author: haloydev
-  version: "1.0.0"
+description: Create a Dockerfile for the current project to deploy with haloy. Use when the user says "dockerize", "create a Dockerfile", "containerize my app", "make this deployable", or "prepare for haloy". This skill creates optimized, production-ready Dockerfiles without docker-compose. Not for multi-container setups requiring docker-compose, local development environments with multiple services, or Kubernetes manifests.
 ---
 
 # Dockerize for Haloy
 
 Create production-ready Dockerfiles optimized for deployment with [haloy](https://haloy.dev).
-
-## Important: Scope Check
-
-Before proceeding, verify the user's request aligns with this skill:
-
-**This skill is for:**
-- Creating a single Dockerfile for haloy deployment
-- Containerizing applications without docker-compose
-- Preparing apps for single-container production deployment
-
-**This skill is NOT for:**
-- Multi-container setups requiring docker-compose
-- Local development environments with multiple services
-- Kubernetes manifests or other orchestration
 
 If the user's request involves docker-compose, multiple containers, or complex orchestration, inform them:
 
@@ -155,50 +136,14 @@ Use defaults unless a critical value is missing. Only ask the user when needed.
 
 **IMPORTANT**: Always detect the local runtime version to ensure dev/prod consistency. Do not rely on your training data for version numbers.
 
-### Version Selection Priority
+**Version selection priority:**
+1. **Project config files** (highest priority) - `.nvmrc`, `.node-version`, `engines.node`, `.python-version`, `go.mod`, `rust-toolchain.toml`, `.ruby-version`, etc.
+2. **Local installed version** - run the runtime's version command
+3. **Fallback to `references/base-images.md`** - only if above methods fail
 
-1. **Project config files** (highest priority)
-2. **Local installed version** (run version command)
-3. **Fallback to `references/base-images.md`** (only if above methods fail)
+See `references/base-images.md` for the full version detection guide, config file locations, version-to-tag mappings, and current recommended fallback versions.
 
-### Detect Local Version
-
-Before choosing a base image, check for the runtime version in this order:
-
-**Node.js:**
-1. Check config files: `.nvmrc`, `.node-version`, `engines.node` in package.json, `volta.node` in package.json
-2. If no config, run: `node --version`
-3. Use major version for image tag (e.g., `v24.13.0` → `node:24-slim`)
-
-**Python:**
-1. Check config files: `.python-version`, `[tool.poetry.dependencies].python` in pyproject.toml, `python_requires` in Pipfile
-2. If no config, run: `python --version` or `python3 --version`
-3. Use major.minor for image tag (e.g., `3.12.1` → `python:3.12-slim`)
-
-**Go:**
-1. Check `go.mod` for `go` directive (e.g., `go 1.23`)
-2. If no go.mod, run: `go version`
-3. Use major.minor for image tag (e.g., `1.23.4` → `golang:1.23-alpine`)
-
-**Rust:**
-1. Check `rust-toolchain.toml` or `rust-toolchain` file, `rust-version` in Cargo.toml
-2. If no config, run: `rustc --version`
-3. Use major.minor for image tag (e.g., `1.83.0` → `rust:1.83-slim`)
-
-**Ruby:**
-1. Check config files: `.ruby-version`, `ruby` directive in Gemfile
-2. If no config, run: `ruby --version`
-3. Use major.minor for image tag (e.g., `3.3.0` → `ruby:3.3-slim`)
-
-### Fallback Reference
-
-If local detection fails, check `references/base-images.md` for current recommended versions.
-
-### Image Tag Guidelines
-
-- Use `slim` variants for smaller images (recommended for most apps)
-- Use `alpine` for even smaller images (some compatibility tradeoffs)
-- Always use specific major.minor tags, never `latest`
+Use `slim` variants by default, `alpine` for smaller images (some compatibility tradeoffs). Always use specific major.minor tags, never `latest`.
 
 ## Dockerfile Best Practices
 
