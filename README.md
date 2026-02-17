@@ -9,6 +9,7 @@ Skills are packaged instructions that extend AI coding agents (Claude Code, Curs
 | Skill | Description |
 |-------|-------------|
 | [dockerize](./dockerize) | Create production-ready Dockerfiles for haloy deployment |
+| [haloy-config](./haloy-config) | Create haloy.yaml configuration files for deploying applications with haloy |
 
 ## Installation
 
