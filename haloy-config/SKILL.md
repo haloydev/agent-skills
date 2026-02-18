@@ -162,7 +162,19 @@ If database dependencies are detected (see Database Detection section):
    - Generate single-target config as usual
    - Remind user: "Remember to set the `DATABASE_URL` environment variable for your external database."
 
+### Advanced Features
+
+Do NOT proactively offer these. Only include them when the user specifically mentions the topic:
+
+- **Secret providers (1Password)**: When the user mentions 1Password, secret management, or wants to avoid plaintext secrets. See `references/config-reference.md` for setup syntax.
+- **Registry auth / private images**: When the user mentions GHCR, private Docker registry, ECR, or similar. See image configuration in `references/config-reference.md`.
+- **Deploy hooks**: When the user mentions running migrations, notifications, or pre/post deployment commands. See deploy hooks in `references/config-reference.md`.
+- **Protected targets**: When the user has databases or stateful services they want excluded from `haloy deploy --all`.
+- **Naming strategy**: Only relevant when `static` is needed (rare). The `database` and `service` presets set this automatically.
+
 ## Configuration Reference
+
+Haloy searches for `haloy.yaml`, `haloy.yml`, `haloy.json`, or `haloy.toml` (in that order). JSON uses `camelCase` keys (e.g., `healthCheckPath`), YAML/TOML use `snake_case`.
 
 Haloy supports two modes:
 
@@ -201,8 +213,14 @@ env:
   - name: "NODE_ENV"
     value: "production"
   - name: "DATABASE_URL"
-    value: "postgres://user:pass@db:5432/myapp"
+    from:
+      env: "PRODUCTION_DATABASE_URL"
+  - name: "API_SECRET"
+    from:
+      secret: "onepassword:app-secrets.api-key"
 ```
+
+Env var forms: `value` (inline string), `from.env` (reads from deployer's local env), `from.secret` (reads from a secret provider). See `references/config-reference.md` for all forms including `build_arg` and interpolation.
 
 ### With Volumes (for persistent data)
 
@@ -213,7 +231,10 @@ domains:
   - domain: "my-app.example.com"
 volumes:
   - "app-data:/app/data"
+  - "/var/backups/my-app:/app/backups:ro"
 ```
+
+Named volumes (e.g., `app-data:/app/data`) are recommended. Bind mounts require absolute paths on the host side. Modifiers: `:ro` (read-only), `:rw` (default), `:z`/`:Z` (SELinux).
 
 ### With Self-Hosted Database (Multi-Target)
 
@@ -272,20 +293,42 @@ targets:
 ### Full Reference
 
 For all configuration options, see: https://haloy.dev/docs/configuration-reference
+For exhaustive syntax and advanced features, see: `references/config-reference.md`
 
-Key options:
+**Identity & Deployment:**
 - `name` - Application name (required for single deployment)
 - `server` - Haloy server URL (required)
-- `image` - Docker image configuration (repository, tag)
+- `targets` - Multiple deployment targets (multi-target mode)
+- `preset` - "database" or "service" (sets strategy, naming, protected defaults)
+- `deployment_strategy` - "rolling" (default) or "replace"
+- `naming_strategy` - "dynamic" (default) or "static"
+- `protected` - Skip target on `haloy deploy --all` (default: false)
+- `replicas` - Number of container instances (default: 1)
+
+**Image:**
+- `image` - String shorthand (`"nginx:alpine"`) or object with `repository`, `tag`, `build`, `registry`, `source`, `history`, `build_config`
+- `images` - Named image map for multi-target configs
+
+**Networking:**
 - `domains` - Array of domain objects with `domain` and optional `aliases`
 - `port` - Container port (default: "8080")
 - `health_check_path` - Health check endpoint (default: "/")
-- `env` - Environment variables as name/value pairs
-- `volumes` - Volume mounts for persistent data
-- `replicas` - Number of container instances (default: 1)
-- `deployment_strategy` - "rolling" (default) or "replace"
-- `targets` - Define multiple deployment targets (multi-target mode)
-- `preset` - Apply preset configuration ("database" or "service")
+
+**Environment & Secrets:**
+- `env` - Array of env vars: `value`, `from.env`, `from.secret`, `build_arg`
+- `secret_providers` - 1Password integration (top-level only)
+
+**Storage:**
+- `volumes` - Named volumes or bind mounts with optional modifiers
+
+**Lifecycle Hooks:**
+- `pre_deploy` / `post_deploy` - Per-target commands on local machine
+- `global_pre_deploy` / `global_post_deploy` - Run once across all targets (top-level only)
+
+**Multi-Target:**
+- Root-level fields act as defaults inherited by all targets
+- Target-specific fields override root defaults
+- Target env vars merge with root env vars (duplicates overridden)
 
 ## Output Format
 
@@ -321,3 +364,7 @@ See `references/examples.md` for detailed interaction examples covering:
 - Deploying with configured servers
 - Database detection and self-hosted database setup
 - Handling missing server configuration
+- Using secret providers (1Password)
+- Private registry with deploy hooks
+
+See `references/config-reference.md` for exhaustive syntax on all advanced features.
