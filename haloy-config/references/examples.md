@@ -99,11 +99,10 @@ env:
 targets:
   postgres:
     preset: database
-    image:
-      repository: postgres:17
+    image: "postgres:18"
     port: 5432
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
 
   todo-app:
     domains:
@@ -127,160 +126,106 @@ targets:
 > 1. Validate the config: `haloy validate-config`
 > 2. Deploy: `haloy deploy`
 
-## With Secret Provider
+## With a Published Image
 
-**User**: "Create a haloy config, we use 1Password for secrets"
+**User**: "Create a haloy config for this service. The image is already published to GHCR."
 
 **Agent**:
-1. Checks for Dockerfile - found
+1. Checks for Dockerfile - not required because the user already has a published image
 2. Checks `~/.config/haloy/client.yaml` - finds configured servers
-3. Detects Express.js from package.json
-4. Detects `pg` in dependencies (PostgreSQL)
+3. Detects a Node.js service from `package.json`
+4. Infers app name "event-worker"
+5. Notes this should use explicit image configuration instead of Haloy's default local build flow
 
 **Agent asks**:
 > "I found these configured haloy servers. Which one would you like to deploy to?"
+> - example.haloy.dev
 > - prod.mycompany.com
 
 **User**: "prod.mycompany.com"
 
 **Agent asks**:
-> "What domain should this app be accessible at?"
+> "What published image should Haloy deploy? For example: `ghcr.io/acme/event-worker:v1.2.3`"
 
-**User**: "api.mycompany.com"
-
-**Agent asks**:
-> "Would you like to add any domain aliases?"
-
-**User**: "no"
+**User**: "ghcr.io/acme/event-worker:v1.2.3"
 
 **Agent asks**:
-> "I detected PostgreSQL database dependencies. Would you like to add a self-hosted database service, or will you use an external provider?"
-> - Add self-hosted database
-> - Use external provider
+> "Does this service need a public domain, or is it an internal worker?"
 
-**User**: "Use external provider"
+**User**: "Internal worker"
 
 **Agent creates** `haloy.yaml`:
 ```yaml
-name: "my-api"
+name: "event-worker"
 server: "prod.mycompany.com"
-domains:
-  - domain: "api.mycompany.com"
-port: "3000"
-
-secret_providers:
-  onepassword:
-    prod-db:
-      vault: "Production"
-      item: "Database Credentials"
-    prod-secrets:
-      vault: "Production"
-      item: "API Secrets"
-
-env:
-  - name: "NODE_ENV"
-    value: "production"
-  - name: "DB_PASSWORD"
-    from:
-      secret: "onepassword:prod-db.password"
-  - name: "DATABASE_URL"
-    value: "postgres://app:${DB_PASSWORD}@db.mycompany.com:5432/myapi"
-  - name: "JWT_SECRET"
-    from:
-      secret: "onepassword:prod-secrets.jwt-secret"
+image: "ghcr.io/acme/event-worker:v1.2.3"
 ```
 
 **Agent provides next steps**:
-> Your `haloy.yaml` has been created with 1Password secret integration.
->
-> **Prerequisites**: Make sure the 1Password CLI (`op`) is installed and authenticated, and that the referenced vault items exist.
->
-> **DNS Setup**: Point `api.mycompany.com` to your haloy server's IP address.
+> Your `haloy.yaml` has been created to deploy the published GHCR image directly.
 >
 > To deploy:
-> 1. Validate: `haloy validate-config`
-> 2. Check resolved secrets: `haloy validate-config --show-resolved-config`
-> 3. Deploy: `haloy deploy`
+> 1. Validate the config: `haloy validate-config`
+> 2. Deploy: `haloy deploy`
 
-## With Private Registry and Hooks
+## With Multiple Images and `image_key`
 
-**User**: "Create a haloy config. We push images to GHCR and need to run migrations on deploy"
+**User**: "Create a haloy config for this app. I need a web target and a worker target with different images."
 
 **Agent**:
 1. Checks for Dockerfile - found
 2. Checks `~/.config/haloy/client.yaml` - finds configured servers
-3. Detects Next.js from package.json
-4. Detects Prisma with PostgreSQL
+3. Detects a monorepo layout where web and worker should not share the same image
+4. Chooses root `images` plus target `image_key` instead of duplicating image blocks per target
 
 **Agent asks**:
 > "I found these configured haloy servers. Which one would you like to deploy to?"
+> - example.haloy.dev
 > - prod.mycompany.com
 
-**User**: "prod.mycompany.com"
+**User**: "example.haloy.dev"
 
 **Agent asks**:
-> "What domain should this app be accessible at?"
+> "What domain should the web target use?"
 
-**User**: "app.mycompany.com"
-
-**Agent asks**:
-> "Would you like to add any domain aliases?"
-
-**User**: "www.app.mycompany.com"
-
-**Agent asks**:
-> "I detected PostgreSQL database dependencies (Prisma). Would you like to add a self-hosted database service, or will you use an external provider?"
-
-**User**: "External, we use Neon"
+**User**: "app.example.com"
 
 **Agent creates** `haloy.yaml`:
 ```yaml
-name: "my-app"
-server: "prod.mycompany.com"
-domains:
-  - domain: "app.mycompany.com"
-    aliases:
-      - "www.app.mycompany.com"
-port: "3000"
+name: "acme-app"
+server: "example.haloy.dev"
+images:
+  web:
+    repository: "acme-web"
+    tag: "latest"
+    build_config:
+      context: "."
+      dockerfile: "./apps/web/Dockerfile"
+  worker:
+    repository: "acme-worker"
+    tag: "latest"
+    build_config:
+      context: "."
+      dockerfile: "./apps/worker/Dockerfile"
 
-image:
-  repository: "ghcr.io/mycompany/my-app"
-  tag: "latest"
-  source: "registry"
-  registry:
-    username:
-      from:
-        env: "GHCR_USERNAME"
-    password:
-      from:
-        env: "GHCR_TOKEN"
+targets:
+  production:
+    image_key: "web"
+    domains:
+      - domain: "app.example.com"
+    port: 3000
 
-pre_deploy:
-  - "npx prisma migrate deploy"
-post_deploy:
-  - "curl -s -X POST https://hooks.slack.com/services/XXX -d '{\"text\":\"my-app deployed\"}'"
-
-env:
-  - name: "DATABASE_URL"
-    from:
-      env: "NEON_DATABASE_URL"
-  - name: "NODE_ENV"
-    value: "production"
+  jobs:
+    image_key: "worker"
 ```
 
 **Agent provides next steps**:
-> Your `haloy.yaml` has been created with GHCR registry auth and deploy hooks.
+> Your `haloy.yaml` has been created with named images so each target can resolve the correct image without duplicating configuration.
 >
-> **Prerequisites**:
-> - Set `GHCR_USERNAME` and `GHCR_TOKEN` locally (use a GitHub PAT with `read:packages` scope)
-> - Set `NEON_DATABASE_URL` locally with your Neon connection string
->
-> **DNS Setup**: Point `app.mycompany.com` and `www.app.mycompany.com` to your haloy server's IP address.
->
-> The `pre_deploy` hook will run `prisma migrate deploy` before each deployment, and `post_deploy` will send a Slack notification after.
+> **DNS Setup**: Point `app.example.com` to your haloy server.
 >
 > To deploy:
-> 1. Validate: `haloy validate-config`
+> 1. Validate the config: `haloy validate-config`
 > 2. Deploy: `haloy deploy`
 
 ## Without Configured Servers

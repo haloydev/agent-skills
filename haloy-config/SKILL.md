@@ -1,19 +1,19 @@
 ---
 name: haloy-config
-description: Create a haloy.yaml configuration file for deploying applications with haloy. Use when the user says "create haloy config", "add haloy.yaml", "configure for haloy", "set up haloy deployment", or "prepare for haloy". Supports single-target and multi-target deployments with optional self-hosted databases. Not for creating Dockerfiles (use the dockerize skill), multi-environment deployments, or docker-compose/Kubernetes setups.
+description: Create a haloy.yaml configuration file for deploying applications with haloy. Use when the user says "create haloy config", "add haloy.yaml", "configure for haloy", "set up haloy deployment", or "prepare for haloy". Supports single-target and multi-target deployments, local Docker builds, published/private images, named images with image_key, and optional self-hosted databases. Not for creating Dockerfiles (use the dockerize skill), multi-environment deployments, or docker-compose/Kubernetes setups.
 ---
 
 # Haloy Configuration
 
 Create `haloy.yaml` configuration files for deploying applications with [haloy](https://haloy.dev).
 
-If no Dockerfile exists and the user needs one, inform them:
+If no Dockerfile exists and the user does not already have a published image to deploy, inform them:
 
-> "No Dockerfile found in this project. Haloy deploys Docker containers, so you'll need a Dockerfile first. Would you like me to create one using the `dockerize` skill?"
+> "No Dockerfile found in this project, and I don't see an existing image to deploy. Haloy can either build from a Dockerfile or deploy a published image. Would you like me to create a Dockerfile using the `dockerize` skill?"
 
 ## How It Works
 
-1. **Check for Dockerfile** - Verify the project can be containerized
+1. **Check for Dockerfile or an existing published image** - Decide whether the app should use Haloy's default local build flow or explicit image configuration
 2. **Check for configured haloy servers** - Look for existing server configurations
 3. **Detect the project type** by examining:
    - `package.json` with framework dependencies (Next.js, TanStack Start, Express, etc.)
@@ -23,11 +23,12 @@ If no Dockerfile exists and the user needs one, inform them:
    - `Gemfile` (Ruby/Rails)
    - `composer.json` (PHP/Laravel)
 4. **Detect database dependencies** (Prisma, Drizzle, pg, SQLAlchemy, etc.)
-5. **Infer defaults** for app name, port, and health check path
+5. **Infer defaults** for app name, port, health check path, and image strategy
 6. **Ask the user** for server (from configured list or manual entry) and domain
-7. **If database detected**, ask if they want self-hosted or external
-8. **Generate haloy.yaml** with appropriate configuration
-9. **Provide next steps** for validation and deployment
+7. **If explicit image configuration is needed**, gather the minimal extra image details
+8. **If database detected**, ask if they want self-hosted or external
+9. **Generate haloy.yaml** with appropriate configuration
+10. **Provide next steps** for validation and deployment
 
 ## Project Detection
 
@@ -83,6 +84,51 @@ Use defaults unless a critical value is missing. Only ask the user when necessar
 - **First choice**: `name` field in `package.json`
 - **Second choice**: Project folder name
 - **Ask if**: Name contains invalid characters or is generic (e.g., "app", "project")
+
+### Image Strategy
+
+Prefer the simplest valid image configuration for the user's setup.
+
+1. **Default local build**:
+   - If a Dockerfile exists at the project root and the user did not ask for a published image, registry auth, custom Dockerfile path, custom build context, or multiple target-specific images, use the minimal Haloy config and omit `image` entirely.
+   - This matches Haloy's default flow: it looks for a Dockerfile in the same directory, builds locally, and uploads to the server.
+
+2. **Ask about image details only when needed**:
+   - No Dockerfile exists
+   - The user mentions an existing/published image, Docker Hub, GHCR, ECR, or a private registry
+   - The Dockerfile is not in the config directory or the project is a monorepo and needs a custom build context
+   - Multiple targets need different images (for example, web and worker)
+   - The user explicitly wants registry push behavior or rollback/history settings
+
+3. **For single-image deployments with an existing image**:
+   - Use string shorthand when only the repository/tag is needed:
+     ```yaml
+     image: "ghcr.io/acme/my-app:v1.2.3"
+     ```
+   - Use object form only when you need `tag`, `registry`, `history`, or `build_config`.
+   - Omit `registry.server` unless Haloy cannot infer it from the repository host.
+
+4. **For local builds that need explicit image config**:
+   - Use `image.build_config` when the Dockerfile or build context is not the default.
+   - Use the current field names from the docs:
+     ```yaml
+     image:
+       build_config:
+         context: "."
+         dockerfile: "Dockerfile"
+     ```
+   - Paths are relative to the directory containing `haloy.yaml`.
+   - Prefer omitting `build_config.push`; Haloy auto-detects the common `server` vs `registry` cases.
+   - If the same value is needed both at runtime and as a build argument, prefer `env[].build_arg: true` over duplicating it in `build_config.args`.
+
+5. **For multi-target setups**:
+   - Use root `image` when every target should inherit the same image defaults.
+   - Use root `images` plus target `image_key` when targets need different images.
+   - A target may define either `image` or `image_key`, never both.
+   - Resolution priority is: target `image` -> target `image_key` -> root `image`.
+
+6. **If there is no Dockerfile and no published image**:
+   - Recommend the `dockerize` skill instead of inventing an image configuration.
 
 ### Server URL
 
@@ -149,32 +195,24 @@ If database dependencies are detected (see Database Detection section):
 2. **If self-hosted**:
    - Generate multi-target config with database service + app target
    - Use the `database` preset for the database target
-   - Add appropriate environment variables with placeholder values
+   - Add appropriate environment variables with placeholder values unless the user already has them in env files or secret providers
    - Add volume for data persistence
+   - Prefer string shorthand for simple database images unless more image fields are needed
+   - Note that `preset: database` applies safer defaults, including `image.history.strategy: "none"`
    - Database defaults by type:
 
    | Database | Image | Port | Volume Path |
    |----------|-------|------|-------------|
-   | PostgreSQL | `postgres:17` | 5432 | `/var/lib/postgresql/data` |
+   | PostgreSQL | `postgres:18` | 5432 | `/var/lib/postgresql` |
    | MySQL | `mysql:8` | 3306 | `/var/lib/mysql` |
+
+   - Image data paths vary by image and version. If the user changes the image, verify the correct mount path in that image's documentation.
 
 3. **If external provider**:
    - Generate single-target config as usual
    - Remind user: "Remember to set the `DATABASE_URL` environment variable for your external database."
 
-### Advanced Features
-
-Do NOT proactively offer these. Only include them when the user specifically mentions the topic:
-
-- **Secret providers (1Password)**: When the user mentions 1Password, secret management, or wants to avoid plaintext secrets. See `references/config-reference.md` for setup syntax.
-- **Registry auth / private images**: When the user mentions GHCR, private Docker registry, ECR, or similar. See image configuration in `references/config-reference.md`.
-- **Deploy hooks**: When the user mentions running migrations, notifications, or pre/post deployment commands. See deploy hooks in `references/config-reference.md`.
-- **Protected targets**: When the user has databases or stateful services they want excluded from `haloy deploy --all`.
-- **Naming strategy**: Only relevant when `static` is needed (rare). The `database` and `service` presets set this automatically.
-
 ## Configuration Reference
-
-Haloy searches for `haloy.yaml`, `haloy.yml`, `haloy.json`, or `haloy.toml` (in that order). JSON uses `camelCase` keys (e.g., `healthCheckPath`), YAML/TOML use `snake_case`.
 
 Haloy supports two modes:
 
@@ -187,6 +225,8 @@ Haloy supports two modes:
 name: "my-app"
 server: "haloy.yourserver.com"
 ```
+
+This is the default choice when the project already has a root Dockerfile and does not need custom image settings.
 
 ### With Domain and Port
 
@@ -201,6 +241,33 @@ port: "3000"
 health_check_path: "/health"
 ```
 
+### With a Published Image
+
+```yaml
+name: "my-app"
+server: "haloy.yourserver.com"
+image: "ghcr.io/acme/my-app:v1.2.3"
+domains:
+  - domain: "my-app.example.com"
+port: 3000
+```
+
+### With a Custom Local Build
+
+```yaml
+name: "my-app"
+server: "haloy.yourserver.com"
+image:
+  repository: "my-app"
+  tag: "latest"
+  build_config:
+    context: "."
+    dockerfile: "./apps/web/Dockerfile"
+domains:
+  - domain: "my-app.example.com"
+port: 3000
+```
+
 ### With Environment Variables
 
 ```yaml
@@ -213,14 +280,8 @@ env:
   - name: "NODE_ENV"
     value: "production"
   - name: "DATABASE_URL"
-    from:
-      env: "PRODUCTION_DATABASE_URL"
-  - name: "API_SECRET"
-    from:
-      secret: "onepassword:app-secrets.api-key"
+    value: "postgres://user:pass@db:5432/myapp"
 ```
-
-Env var forms: `value` (inline string), `from.env` (reads from deployer's local env), `from.secret` (reads from a secret provider). See `references/config-reference.md` for all forms including `build_arg` and interpolation.
 
 ### With Volumes (for persistent data)
 
@@ -231,10 +292,7 @@ domains:
   - domain: "my-app.example.com"
 volumes:
   - "app-data:/app/data"
-  - "/var/backups/my-app:/app/backups:ro"
 ```
-
-Named volumes (e.g., `app-data:/app/data`) are recommended. Bind mounts require absolute paths on the host side. Modifiers: `:ro` (read-only), `:rw` (default), `:z`/`:Z` (SELinux).
 
 ### With Self-Hosted Database (Multi-Target)
 
@@ -251,11 +309,10 @@ env:
 targets:
   postgres:
     preset: database
-    image:
-      repository: postgres:17
+    image: "postgres:18"
     port: 5432
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
 
   my-app:
     domains:
@@ -268,6 +325,28 @@ targets:
         value: "production"
 ```
 
+### Named Images With `image_key`
+
+```yaml
+name: "my-app"
+server: "haloy.yourserver.com"
+images:
+  web:
+    repository: "my-app-web"
+    tag: "v1.2.3"
+  worker: "my-app-worker:v1.2.3"
+
+targets:
+  production:
+    image_key: "web"
+    domains:
+      - domain: "my-app.example.com"
+    port: 3000
+
+  jobs:
+    image_key: "worker"
+```
+
 ### Multi-Target Example
 
 ```yaml
@@ -275,7 +354,10 @@ targets:
 image:
   repository: "my-app"
   tag: "latest"
-port: "3000"
+  build_config:
+    context: "."
+    dockerfile: "Dockerfile"
+port: 3000
 
 targets:
   production:
@@ -293,42 +375,25 @@ targets:
 ### Full Reference
 
 For all configuration options, see: https://haloy.dev/docs/configuration-reference
-For exhaustive syntax and advanced features, see: `references/config-reference.md`
 
-**Identity & Deployment:**
+Key options:
 - `name` - Application name (required for single deployment)
 - `server` - Haloy server URL (required)
-- `targets` - Multiple deployment targets (multi-target mode)
-- `preset` - "database" or "service" (sets strategy, naming, protected defaults)
-- `deployment_strategy` - "rolling" (default) or "replace"
-- `naming_strategy` - "dynamic" (default) or "static"
-- `protected` - Skip target on `haloy deploy --all` (default: false)
-- `replicas` - Number of container instances (default: 1)
-
-**Image:**
-- `image` - String shorthand (`"nginx:alpine"`) or object with `repository`, `tag`, `build`, `registry`, `source`, `history`, `build_config`
-- `images` - Named image map for multi-target configs
-
-**Networking:**
+- `image` - Docker image configuration for the default/single target; supports string shorthand or object form
+- `images` - Root map of named images for multi-target deployments
+- `image_key` - Target-level reference to a named image in `images`
+- `image.build_config` - Local build settings: `context`, `dockerfile`, `platform`, `args`, and optional `push`
+- `image.registry` - Registry authentication for private images or registry pushes
+- `image.history` - Rollback strategy (`local`, `registry`, or `none`)
 - `domains` - Array of domain objects with `domain` and optional `aliases`
 - `port` - Container port (default: "8080")
 - `health_check_path` - Health check endpoint (default: "/")
-
-**Environment & Secrets:**
-- `env` - Array of env vars: `value`, `from.env`, `from.secret`, `build_arg`
-- `secret_providers` - 1Password integration (top-level only)
-
-**Storage:**
-- `volumes` - Named volumes or bind mounts with optional modifiers
-
-**Lifecycle Hooks:**
-- `pre_deploy` / `post_deploy` - Per-target commands on local machine
-- `global_pre_deploy` / `global_post_deploy` - Run once across all targets (top-level only)
-
-**Multi-Target:**
-- Root-level fields act as defaults inherited by all targets
-- Target-specific fields override root defaults
-- Target env vars merge with root env vars (duplicates overridden)
+- `env` - Environment variables as name/value pairs
+- `volumes` - Volume mounts for persistent data
+- `replicas` - Number of container instances (default: 1)
+- `deployment_strategy` - "rolling" (default) or "replace"
+- `targets` - Define multiple deployment targets (multi-target mode)
+- `preset` - Apply preset configuration ("database" or "service")
 
 ## Output Format
 
@@ -364,7 +429,3 @@ See `references/examples.md` for detailed interaction examples covering:
 - Deploying with configured servers
 - Database detection and self-hosted database setup
 - Handling missing server configuration
-- Using secret providers (1Password)
-- Private registry with deploy hooks
-
-See `references/config-reference.md` for exhaustive syntax on all advanced features.
