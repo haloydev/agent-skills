@@ -259,7 +259,7 @@ naming_strategy: "dynamic"   # default
 ```
 
 - **dynamic** (default): Containers get unique names per deployment
-- **static**: Container names are fixed. Requires `deployment_strategy: "replace"` and does not support multiple replicas
+- **static**: Container names are fixed. Requires `deployment_strategy: "replace"` (the default for targets without domains) and does not support multiple replicas
 
 ## Protected Targets
 
@@ -323,7 +323,7 @@ Usually not needed. Haloy reads the token from `~/.config/haloy/client.yaml` by 
 | `health_check_path` | string | "/" |
 | `env` | array | Environment variables |
 | `volumes` | array | Volume mounts |
-| `deployment_strategy` | string | "rolling" |
+| `deployment_strategy` | string | "rolling" with domains, "replace" without |
 | `naming_strategy` | string | "dynamic" |
 | `protected` | boolean | false |
 | `preset` | string | "database" or "service" |

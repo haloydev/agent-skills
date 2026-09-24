@@ -164,6 +164,8 @@ image: "ghcr.io/acme/event-worker:v1.2.3"
 **Agent provides next steps**:
 > Your `haloy.yaml` has been created to deploy the published GHCR image directly.
 >
+> Because it has no domains, Haloy deploys it with the `replace` strategy and other containers reach it by container name. Leave `deployment_strategy` unset; `rolling` is rejected for targets without domains.
+>
 > To deploy:
 > 1. Validate the config: `haloy validate-config`
 > 2. Deploy: `haloy deploy`
@@ -220,6 +222,8 @@ targets:
 ```
 
 **Agent provides next steps**:
+> The `jobs` target has no domains, so it deploys with the `replace` strategy and is reached by container name. Leave `deployment_strategy` unset on it.
+>
 > Your `haloy.yaml` has been created with named images so each target can resolve the correct image without duplicating configuration.
 >
 > **DNS Setup**: Point `app.example.com` to your haloy server.

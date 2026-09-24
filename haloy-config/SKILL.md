@@ -160,7 +160,7 @@ servers:
 ### Domain
 - **Always ask** - Required for web applications
 - Example prompt: "What domain should this app be accessible at? (e.g., myapp.example.com)"
-- If user says "none" or "skip", omit the domains section
+- If user says "none" or "skip", omit the domains section. A target without domains deploys with the `replace` strategy automatically; never add `deployment_strategy: "rolling"` to it, that fails validation
 
 ### Domain Aliases
 - **Ask after domain**: Once the user provides a domain, ask if they want to add any aliases
@@ -391,7 +391,7 @@ Key options:
 - `env` - Environment variables as name/value pairs
 - `volumes` - Volume mounts for persistent data
 - `replicas` - Number of container instances (default: 1)
-- `deployment_strategy` - "rolling" (default) or "replace"
+- `deployment_strategy` - "rolling" (default when domains are set, requires domains) or "replace" (default without domains)
 - `targets` - Define multiple deployment targets (multi-target mode)
 - `preset` - Apply preset configuration ("database" or "service")
 
